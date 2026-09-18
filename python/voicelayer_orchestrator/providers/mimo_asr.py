@@ -150,8 +150,8 @@ def _resolve_audio_tag(
 def _wav_duration_seconds(audio_path: Path) -> float:
     """Read a WAV file header and return its duration in seconds.
 
-    Uses the stdlib `wave` module; relies on the recorder writing
-    PCM WAV files (the existing pw-record / arecord paths satisfy
+    Uses the stdlib `wave` module; relies on the capture path writing
+    PCM WAV files (the daemon's in-process cpal capture satisfies
     this). Non-WAV inputs raise ProviderInvocationError so the caller
     can surface a useful error rather than feeding a silent zero
     into MiMo.

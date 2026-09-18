@@ -3,6 +3,12 @@ use crate::domain::{
 };
 
 impl InjectionPlan {
+    /// Derive the host-ready payload from `request`.
+    ///
+    /// GUI targets carry the text verbatim. `TerminalBracketedPaste`
+    /// wraps it in the bracketed-paste pair, appending `\n` only when
+    /// `auto_submit` is set; `TerminalKittyRemote` passes the text
+    /// through bare, again appending `\n` only on explicit submission.
     pub fn from_request(request: &InjectRequest) -> Self {
         let payload = match request.target {
             InjectTarget::GuiAccessible | InjectTarget::GuiClipboard => request.text.clone(),

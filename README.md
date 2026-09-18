@@ -29,9 +29,10 @@ VoiceLayer is not designed as:
 - `crates/vl-desktop`: interactive GUI shell that talks to the daemon over the same socket
 - `python/voicelayer_orchestrator`: JSON-RPC worker protocol and provider orchestration entry point
 - `systemd/`: user-service templates for the daemon and the optional persistent `whisper-server`
+- `launchd/`: macOS LaunchAgent template that `scripts/install.sh` installs on Darwin hosts
 - `scripts/install.sh`: one-shot installer that builds release binaries and seeds `~/.local/bin/`, `~/.config/systemd/user/`, and `~/.config/voicelayer/`
 - `docs/`: architecture, host strategy, and operations documentation. HTML pages are the authoritative docs format; open [`docs/index.html`](docs/index.html) for the navigation-friendly entry point. The site is organized into:
-    - Architecture references — [`docs/architecture/overview.html`](docs/architecture/overview.html) (runtime topology, recorder backends, dictation segmentation), [`docs/architecture/python-worker-protocol.html`](docs/architecture/python-worker-protocol.html) (JSON-RPC methods, persistent worker semantics, provider routing), and [`docs/architecture/host-injection-strategy.html`](docs/architecture/host-injection-strategy.html) (AT-SPI / clipboard / keyboard simulation priority).
+    - Architecture references — [`docs/architecture/overview.html`](docs/architecture/overview.html) (runtime topology, audio capture, dictation segmentation), [`docs/architecture/python-worker-protocol.html`](docs/architecture/python-worker-protocol.html) (JSON-RPC methods, persistent worker semantics, provider routing), and [`docs/architecture/host-injection-strategy.html`](docs/architecture/host-injection-strategy.html) (AT-SPI / clipboard / keyboard simulation priority).
     - Operator guides — [`docs/guides/development.html`](docs/guides/development.html) (repository layout and verification chain), [`docs/guides/systemd.html`](docs/guides/systemd.html) (`scripts/install.sh`, user units, env file), [`docs/guides/local-asr-provider.html`](docs/guides/local-asr-provider.html) (`whisper-cli` / `whisper-server`, silero-vad pre-pass, MiMo-V2.5-ASR, Qwen3-ASR-1.7B), [`docs/guides/local-llm-provider.html`](docs/guides/local-llm-provider.html) (OpenAI-compatible endpoint, optional `llama-server` autostart), and [`docs/guides/desktop.html`](docs/guides/desktop.html) (`vl-desktop` client-side env vars).
 - `openapi/`: local API contract
 
@@ -51,14 +52,14 @@ Shipped today:
 - Real LLM integration via OpenAI-compatible chat completions, with optional `llama-server` autostart for local endpoints
 - Live Rust↔Python stdio JSON-RPC bridge through the `uv`-managed project environment
 - systemd user units for `voicelayerd` and the optional `whisper-server`, plus `scripts/install.sh`
-- `vl doctor` surfaces recorder diagnostics, whisper mode (`cli` / `server` / `unconfigured`), LLM reachability, portal support, and systemd unit state
+- `vl doctor` surfaces whisper mode (`cli` / `server` / `unconfigured`), ASR and LLM provider reachability, and global-shortcuts portal support
 
 Not yet implemented (documented and scoped):
 
 - GNOME portal hotkey binding inside the `vl` CLI (`vl-desktop` already registers `voicelayer.dictation_toggle` through `org.freedesktop.portal.GlobalShortcuts` and maps activations to start/stop; the terminal CLI still relies on `dictation foreground-ptt` raw-mode key handling rather than the portal)
 - AT-SPI writable target discovery
 - Always-on background microphone and mid-utterance partial transcripts
-- Adaptive recorder cadence driven by VAD verdicts (the shipped `vad_gated` mode flushes buffered speech on silence but the recorder itself still rolls on a fixed `probe_secs` schedule)
+- Adaptive capture cadence driven by VAD verdicts (the shipped `vad_gated` mode flushes buffered speech on silence but the capture itself still slices probes on a fixed `probe_secs` schedule)
 - `.deb` packaging
 
 ## Development
@@ -68,7 +69,7 @@ Not yet implemented (documented and scoped):
 - Rust 1.88+
 - Python 3.12+
 - `uv` 0.11+
-- Ubuntu with PipeWire
+- Ubuntu with PipeWire, or macOS on Apple Silicon (CoreAudio)
 
 ### Verification Chain
 
@@ -132,7 +133,7 @@ See [docs/guides/local-asr-provider.html](docs/guides/local-asr-provider.html) f
 
 ### Launch the Desktop Shell
 
-See [docs/guides/desktop.html](docs/guides/desktop.html) for `vl-desktop` usage and the two client-side environment variables (`VOICELAYER_VL_BIN`, `VOICELAYER_LOG`).
+See [docs/guides/desktop.html](docs/guides/desktop.html) for `vl-desktop` usage and the two client-side environment variables (`VOICELAYER_DAEMON_BIN`, `VOICELAYER_LOG`).
 
 ### Install as a systemd User Service
 
@@ -156,7 +157,7 @@ cargo run -p vl -- transcribe-file /path/to/sample.wav --language auto
 cargo run -p vl -- record-transcribe --duration-seconds 8 --language auto
 ```
 
-The CLI prefers `pw-record` with `timeout --signal=INT` and falls back to `arecord`.
+Capture runs in process in the daemon through `cpal` (CoreAudio on macOS, the PipeWire ALSA shim on Linux), so no external recorder binary is needed.
 Internally this reuses the same daemon-side dictation capture flow the UI and hotkey layer call.
 
 The daemon exposes a live dictation session flow:
@@ -167,8 +168,8 @@ The daemon exposes a live dictation session flow:
 The request body's `segmentation` field selects between one-shot, fixed-duration segmented, and silero-vad gated capture:
 
 - `{"mode": "one_shot"}` (default) records a single WAV from start to stop and transcribes it once.
-- `{"mode": "fixed", "segment_secs": N}` rolls the recorder every `N` seconds; each finalized chunk is transcribed in the background and the per-segment events surface on `/v1/events/stream` (`dictation.segment_recorded`, `dictation.segment_transcribed`) while stop returns the concatenated transcript.
-- `{"mode": "vad_gated", "probe_secs": P, "max_segment_secs": M, "silence_gap_probes": G}` rolls the recorder every `P` seconds, classifies each probe via the worker's `segment_probe` RPC (silero-vad), and flushes the buffered speech unit to `transcribe` when `G` consecutive silent probes arrive or the buffered duration reaches `M`. Per-probe / per-unit events (`dictation.probe_analyzed`, `dictation.speech_unit_flushed`, `dictation.speech_unit_transcribed`) stream alongside the lifecycle events.
+- `{"mode": "fixed", "segment_secs": N}` slices the capture buffer every `N` seconds; each finalized chunk is transcribed in the background and the per-segment events surface on `/v1/events/stream` (`dictation.segment_recorded`, `dictation.segment_transcribed`) while stop returns the concatenated transcript.
+- `{"mode": "vad_gated", "probe_secs": P, "max_segment_secs": M, "silence_gap_probes": G}` cuts probes every `P` seconds, classifies each probe via the worker's `segment_probe` RPC (silero-vad), and flushes the buffered speech unit to `transcribe` when `G` consecutive silent probes arrive or the buffered duration reaches `M`. Per-probe / per-unit events (`dictation.probe_analyzed`, `dictation.speech_unit_flushed`, `dictation.speech_unit_transcribed`) stream alongside the lifecycle events.
 
 The `vl` CLI exercises that control plane directly:
 
@@ -293,7 +294,7 @@ This checks whether the current desktop session exposes `org.freedesktop.portal.
 
 ## Product Defaults
 
-- Desktop target: Ubuntu GNOME Wayland
+- Desktop target: Ubuntu GNOME Wayland (primary), macOS on Apple Silicon (supported)
 - Local ASR baseline: `whisper.cpp`
 - Local LLM baseline: `Gemma 4` via `llama.cpp`-compatible deployment
 - GUI insertion priority: AT-SPI, then clipboard, then keyboard simulation fallback

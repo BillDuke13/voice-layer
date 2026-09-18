@@ -63,9 +63,7 @@ pub(crate) enum CliSegmentationMode {
 /// knobs. Clap's `required_if_eq` guarantees that the mode-specific
 /// numeric knobs are populated before this runs, so the `.expect(..)`
 /// panics only fire when the clap wiring itself is broken — they never
-/// fire on valid user input. The error-panic policy is the same as the
-/// equivalent panics for `RecorderBackend::from` above: unreachable
-/// under clap's contract.
+/// fire on valid user input.
 pub(crate) fn build_segmentation_mode(
     mode: CliSegmentationMode,
     segment_secs: Option<u32>,

@@ -21,10 +21,15 @@ pub fn default_runtime_dir() -> PathBuf {
         .join("voicelayer")
 }
 
+/// Default daemon control socket: `daemon.sock` under
+/// [`default_runtime_dir`].
 pub fn default_socket_path() -> PathBuf {
     default_runtime_dir().join("daemon.sock")
 }
 
+/// Default project root used to locate the Python worker:
+/// `VOICELAYER_PROJECT_ROOT` when set, else the current directory,
+/// else `.`.
 pub fn default_project_root() -> PathBuf {
     std::env::var_os("VOICELAYER_PROJECT_ROOT")
         .map(PathBuf::from)
@@ -32,12 +37,19 @@ pub fn default_project_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Resolve the platform config file path (e.g.
+/// `~/.config/voicelayer/config.toml` on Linux).
+///
+/// Fails with [`ConfigError::NoConfigDir`] when the platform exposes no
+/// discoverable config directory.
 pub fn config_path() -> Result<PathBuf, ConfigError> {
     let project_dirs = directories::ProjectDirs::from("com", "memenow", "voicelayer")
         .ok_or(ConfigError::NoConfigDir)?;
     Ok(project_dirs.config_dir().join("config.toml"))
 }
 
+/// Failures encountered while locating, reading, parsing, or encoding
+/// the config file.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("unable to determine the platform config directory for VoiceLayer")]
@@ -50,6 +62,8 @@ pub enum ConfigError {
     Encode(#[from] toml::ser::Error),
 }
 
+/// Root of the unified TOML config shared by the daemon, worker, and
+/// CLI. Unknown keys are rejected at parse time (`deny_unknown_fields`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct VoiceLayerConfig {
@@ -69,6 +83,8 @@ impl VoiceLayerConfig {
         Self::load_from(&path)
     }
 
+    /// Load the config at `path` (defaults when the file is absent or
+    /// not a regular file) and apply the environment override layer.
     pub fn load_from(path: &std::path::Path) -> Result<Self, ConfigError> {
         let mut config = if path.is_file() {
             toml::from_str::<Self>(&std::fs::read_to_string(path)?)?
@@ -89,6 +105,10 @@ impl VoiceLayerConfig {
         }
     }
 
+    /// Apply the `VOICELAYER_*` environment override layer in place.
+    ///
+    /// Each variable maps to one config field; an unset or unparsable
+    /// variable leaves the field untouched.
     pub fn apply_env_overrides(&mut self) {
         let env = Env;
 
@@ -203,6 +223,8 @@ pub struct WorkerInitPayload {
     pub vad: VadSettings,
 }
 
+/// Daemon-level settings: control socket location, worker project root,
+/// and the worker call budget.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DaemonSettings {
@@ -212,6 +234,10 @@ pub struct DaemonSettings {
     /// Repository root used to locate the Python worker. Essential for
     /// service-launched daemons (systemd/launchd start with cwd=`/`).
     pub project_root: Option<String>,
+    /// Configured budget for one worker JSON-RPC call, in seconds
+    /// (default 600). Currently inert on the daemon side: the effective
+    /// per-method budgets come from `worker_call_timeout`, which reads
+    /// `VOICELAYER_WORKER_TIMEOUT_SECONDS` directly.
     pub worker_timeout_seconds: u64,
 }
 
@@ -226,6 +252,8 @@ impl Default for DaemonSettings {
 }
 
 impl DaemonSettings {
+    /// Resolved socket path: the configured raw value when set, else
+    /// [`default_socket_path`].
     pub fn socket_path(&self) -> PathBuf {
         self.socket_path_raw
             .as_deref()
@@ -233,6 +261,8 @@ impl DaemonSettings {
             .unwrap_or_else(default_socket_path)
     }
 
+    /// Resolved project root: the configured value when set, else
+    /// [`default_project_root`].
     pub fn project_root(&self) -> PathBuf {
         self.project_root
             .as_deref()
@@ -241,6 +271,13 @@ impl DaemonSettings {
     }
 }
 
+/// OpenAI-compatible LLM provider settings, delivered to the worker in
+/// the `initialize` handshake.
+///
+/// `endpoint` and `model` form the required pair (see
+/// [`LlmSettings::is_configured`]); the `server_bin`, `model_path`,
+/// `hf_repo`, and `server_args` knobs describe the llama-server the
+/// worker may auto-start to back the endpoint.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LlmSettings {
@@ -258,11 +295,15 @@ pub struct LlmSettings {
 }
 
 impl LlmSettings {
+    /// Whether both `endpoint` and `model` are set — the minimum the
+    /// worker needs before it will call the LLM provider.
     pub fn is_configured(&self) -> bool {
         self.endpoint.is_some() && self.model.is_some()
     }
 }
 
+/// Local whisper.cpp subprocess settings for the worker's `cli`
+/// transcription path.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WhisperSettings {
@@ -273,6 +314,10 @@ pub struct WhisperSettings {
     pub extra_args: Option<String>,
 }
 
+/// Settings for the persistent whisper-server HTTP endpoint. When in
+/// play (see [`WhisperServerSettings::is_in_play`]) the worker routes
+/// `transcribe` through the server instead of a one-shot whisper.cpp
+/// subprocess.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WhisperServerSettings {
@@ -294,6 +339,8 @@ impl WhisperServerSettings {
     }
 }
 
+/// Silero VAD tuning delivered to the worker for speech-activity
+/// analysis; inert unless `enabled` is set.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct VadSettings {
@@ -307,6 +354,8 @@ pub struct VadSettings {
     pub sample_rate: u32,
 }
 
+/// What the foreground push-to-talk flow does with the captured text
+/// when the hold is released.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StopAction {
@@ -317,6 +366,9 @@ pub enum StopAction {
     Save,
 }
 
+/// Settings for the `vl dictation foreground-ptt` flow: the hold-to-talk
+/// key, which terminal pane receives the text, and what happens to the
+/// capture on release.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ForegroundPttSettings {

@@ -108,11 +108,15 @@ guide).</p>
 <h2 id="operational-notes">Operational Notes</h2>
 <ul>
 <li>The daemon exposes a <code>/v1</code> API over a Unix domain socket
-with Server-Sent Events at <code>/v1/events/stream</code>. Every handler
-is covered by in-process integration tests under
-<code>crates/voicelayerd/src/lib.rs</code>'s <code>#[cfg(test)]</code>
-modules (<code>http_api_tests</code>, <code>sse_stream_tests</code>,
-<code>segmented_orchestration_tests</code>).</li>
+with Server-Sent Events at <code>/v1/events/stream</code>. The
+<code>#[cfg(test)]</code> modules in
+<code>crates/voicelayerd/src/lib.rs</code> guard doc and route
+alignment (<code>openapi_route_alignment_tests</code>,
+<code>doc_v1_endpoint_alignment_tests</code>,
+<code>sse_event_doc_alignment_tests</code>); runtime behavior is
+exercised by the worker integration tests in
+<code>crates/voicelayerd/src/worker.rs</code> and the Python suite in
+<code>tests/python/</code>.</li>
 <li><code>compose</code>, <code>rewrite</code>, and
 <code>translate</code> call the configured OpenAI-compatible chat
 completion endpoint through the Python worker's
@@ -128,9 +132,9 @@ unavailable); when the endpoint fails they surface <code>-32005</code>
 ONNX model, a pre-pass in <code>providers/vad_segmenter.py</code> trims
 non-speech before whisper — failure downgrades to the raw WAV without
 losing the request.</li>
-<li><code>vl record-transcribe</code> records a short WAV clip with
-<code>pw-record</code> or <code>arecord</code>, then reuses the daemon's
-one-shot capture path into the same transcription flow.</li>
+<li><code>vl record-transcribe</code> asks the daemon's one-shot
+capture path (in-process <code>cpal</code> capture) to record a short
+WAV clip, then feeds it into the same transcription flow.</li>
 <li><code>voicelayerd</code> serves the daemon-side one-shot capture
 path at <code>/v1/dictation/capture</code>, which advances session state
 from <code>listening</code> to <code>transcribing</code> to
@@ -144,12 +148,12 @@ from <code>listening</code> to <code>transcribing</code> to
 <code>{"mode": "fixed", "segment_secs": N, "overlap_secs": 0}</code>,
 and
 <code>{"mode": "vad_gated", "probe_secs": P, "max_segment_secs": M, "silence_gap_probes": G}</code>.
-In <code>fixed</code> mode the recorder rolls every <code>N</code>
-seconds, each chunk is transcribed in the background, and per-segment
-events (<code>dictation.segment_recorded</code>,
+In <code>fixed</code> mode the capture buffer is sliced every
+<code>N</code> seconds, each chunk is transcribed in the background, and
+per-segment events (<code>dictation.segment_recorded</code>,
 <code>dictation.segment_transcribed</code>) stream on
 <code>/v1/events/stream</code> alongside the lifecycle events. In
-<code>vad_gated</code> mode the recorder rolls at
+<code>vad_gated</code> mode probes are cut at
 <code>probe_secs</code> cadence, each probe is classified by silero-vad
 (via the worker's <code>segment_probe</code> RPC), pending speech probes
 flush on silence or at <code>max_segment_secs</code>, and per-probe /
@@ -231,10 +235,9 @@ auto-discover targets yet.</li>
 <code>org.freedesktop.portal.GlobalShortcuts</code> through D-Bus so you
 can tell early whether GNOME/portal-based push-to-talk is viable on the
 current session.</li>
-<li><code>cargo run -p vl -- doctor</code> reports recorder diagnostics,
-whisper mode (<code>cli</code> / <code>server</code> /
-<code>unconfigured</code>), LLM reachability, portal availability, and
-systemd unit state (<code>installed</code> / <code>active</code>).</li>
+<li><code>cargo run -p vl -- doctor</code> reports whisper mode
+(<code>cli</code> / <code>server</code> / <code>unconfigured</code>), ASR
+and LLM provider reachability, and portal availability.</li>
 <li>When whisper-server or llama-server autostart is enabled, provider
 runtime files are written under
 <code>$XDG_RUNTIME_DIR/voicelayer/providers</code>.</li>
@@ -255,7 +258,7 @@ interpreter.</li>
 </main>
 
 <footer class="vl-footer">
-  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu.</span>
+  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu and macOS.</span>
   <span>Documentation source: HTML files under <code>docs/</code>.</span>
 </footer>
 </body>

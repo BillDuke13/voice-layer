@@ -30,11 +30,20 @@ use crate::{
 /// Minimum chunk worth transcribing; shorter tails are skipped.
 const MIN_SEGMENT_SECS: f64 = 0.2;
 
+/// Per-session handle held while a dictation capture is running; the
+/// variant matches the session's segmentation mode.
 pub enum ActiveDictation {
+    /// One-shot: the daemon holds the capture itself and transcribes
+    /// inline on stop.
     OneShot(OneShotActive),
+    /// Segmented (fixed or VAD-gated): a spawned task owns the capture;
+    /// stop and result delivery go through the channel pair in
+    /// [`SegmentedActive`].
     Segmented(SegmentedActive),
 }
 
+/// State for a one-shot session: the live capture plus the
+/// transcription options captured from the start request.
 pub struct OneShotActive {
     pub capture: AudioCapture,
     pub keep_audio: bool,
@@ -43,13 +52,19 @@ pub struct OneShotActive {
     pub provider_id: Option<String>,
 }
 
+/// Channel pair for a segmented session: `stop_tx` tells the spawned
+/// pipeline to finish; `result_rx` delivers its outcome to
+/// [`stop_session`].
 pub struct SegmentedActive {
     pub stop_tx: oneshot::Sender<()>,
     pub result_rx: oneshot::Receiver<Result<DictationCaptureResult, ApiError>>,
 }
 
+/// Live dictation sessions keyed by `session_id`, guarded for handler
+/// access.
 pub type ActiveDictations = Arc<Mutex<HashMap<Uuid, ActiveDictation>>>;
 
+/// Per-session directory under the runtime dir that holds capture WAVs.
 pub fn dictation_dir(session_id: Uuid) -> PathBuf {
     default_runtime_dir()
         .join("dictation")
@@ -67,6 +82,12 @@ fn transition(mut session: CaptureSession, state: SessionState) -> CaptureSessio
     session
 }
 
+/// `POST /v1/sessions/dictation`: create a session and begin capture
+/// according to the requested segmentation mode.
+///
+/// Emits the mode-specific started event plus `dictation_session_created`;
+/// rejects zero-valued segmentation parameters with a 400 before any
+/// capture starts.
 pub async fn start_session(
     state: &AppState,
     request: StartDictationRequest,
@@ -251,6 +272,13 @@ async fn spawn_segmented(
     Ok(())
 }
 
+/// `POST /v1/sessions/dictation/stop`: finish a live session and return
+/// its transcript.
+///
+/// One-shot sessions stop capture and transcribe inline; segmented
+/// sessions signal the pipeline through its stop channel and await the
+/// result. Both paths record the terminal session state and emit
+/// `dictation_completed` or `dictation_failed`.
 pub async fn stop_session(
     state: &AppState,
     session_id: Uuid,

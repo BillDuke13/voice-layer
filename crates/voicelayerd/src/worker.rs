@@ -106,10 +106,18 @@ impl Drop for WorkerProcess {
     }
 }
 
+/// Handle for the Python worker: the launch line, lazy supervision of
+/// the long-lived child, and the typed JSON-RPC methods the daemon
+/// calls. Clones share one underlying process.
 #[derive(Debug, Clone)]
 pub struct WorkerCommand {
+    /// Executable to launch: a venv `python` when discovered, else `uv`.
     pub executable: String,
+    /// Arguments handed to the executable (module flags, or the
+    /// `uv run --project ...` wrapper).
     pub args: Vec<String>,
+    /// Working directory for the child; anchors venv discovery in
+    /// [`WorkerCommand::discover`].
     pub project_root: PathBuf,
     /// Optional per-instance timeout override that bypasses the
     /// env-driven default in `worker_call_timeout`. Only used by tests
@@ -167,6 +175,9 @@ impl WorkerCommand {
         self
     }
 
+    /// Pick the launch line for a project root: the uv-managed
+    /// `.venv/bin/python` when present, else
+    /// `uv run --project <root> python -m voicelayer_orchestrator.worker`.
     pub fn discover(project_root: PathBuf) -> Self {
         let uv_python = project_root.join(".venv").join("bin").join("python");
         if uv_python.is_file() {
@@ -200,6 +211,8 @@ impl WorkerCommand {
         self
     }
 
+    /// Render the launch line as a single string for logs and the
+    /// health summary.
     pub fn display(&self) -> String {
         std::iter::once(self.executable.as_str())
             .chain(self.args.iter().map(String::as_str))
@@ -221,14 +234,19 @@ impl WorkerCommand {
         }
     }
 
+    /// Worker `health` probe; runs on the short probe timeout.
     pub async fn health(&self) -> Result<WorkerHealthResult, WorkerCallError> {
         self.call::<(), _>("health", None).await
     }
 
+    /// Worker `list_providers` catalog probe; runs on the short probe
+    /// timeout.
     pub async fn list_providers(&self) -> Result<WorkerProviderList, WorkerCallError> {
         self.call::<(), _>("list_providers", None).await
     }
 
+    /// Worker `compose` call; real inference, so it runs on the
+    /// inference timeout budget.
     pub async fn compose(
         &self,
         request: &voicelayer_core::ComposeRequest,
@@ -236,6 +254,7 @@ impl WorkerCommand {
         self.call("compose", Some(request)).await
     }
 
+    /// Worker `rewrite` call; runs on the inference timeout budget.
     pub async fn rewrite(
         &self,
         request: &voicelayer_core::RewriteRequest,
@@ -243,6 +262,7 @@ impl WorkerCommand {
         self.call("rewrite", Some(request)).await
     }
 
+    /// Worker `translate` call; runs on the inference timeout budget.
     pub async fn translate(
         &self,
         request: &voicelayer_core::TranslateRequest,
@@ -250,6 +270,7 @@ impl WorkerCommand {
         self.call("translate", Some(request)).await
     }
 
+    /// Worker `transcribe` call; runs on the inference timeout budget.
     pub async fn transcribe(
         &self,
         request: &voicelayer_core::TranscribeRequest,
@@ -532,6 +553,8 @@ impl WorkerCommand {
     }
 }
 
+/// Deserialized reply to the worker `health` RPC: readiness across
+/// every configurable ASR and LLM provider surface.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct WorkerHealthResult {
     pub status: String,
@@ -570,11 +593,15 @@ pub struct WorkerHealthResult {
     pub llm_error: Option<String>,
 }
 
+/// Reply to the worker `list_providers` RPC.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct WorkerProviderList {
     pub providers: Vec<ProviderDescriptor>,
 }
 
+/// Worker reply for compose, rewrite, and translate: the generated text
+/// and provider notes, before the daemon wraps them in a
+/// [`voicelayer_core::PreviewArtifact`].
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct WorkerPreviewPayload {
     pub title: String,
@@ -615,6 +642,8 @@ struct JsonRpcResponse<R> {
     error: Option<JsonRpcError>,
 }
 
+/// JSON-RPC error object the worker returned inside an otherwise
+/// well-formed response.
 #[derive(Debug, Clone, Deserialize, Error)]
 #[error("{message}")]
 pub struct JsonRpcError {
@@ -623,11 +652,15 @@ pub struct JsonRpcError {
 }
 
 impl JsonRpcError {
+    /// Whether this is the worker's "no provider configured for this
+    /// workflow" error (code `-32004`).
     pub fn is_provider_unavailable(&self) -> bool {
         self.code == -32004
     }
 }
 
+/// Failures of the stdio JSON-RPC transport and protocol: spawn and
+/// pipe errors, timeouts, crashes, and malformed responses.
 #[derive(Debug, Error)]
 pub enum WorkerCallError {
     #[error("failed to spawn worker process: {0}")]

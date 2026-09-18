@@ -20,16 +20,24 @@ struct SessionEntry {
     terminal_since: Option<u64>,
 }
 
+/// Bounded, process-local map of live and recently finished sessions,
+/// keyed by `session_id` and guarded by an `RwLock` for handler access.
 #[derive(Clone, Default)]
 pub struct SessionStore {
     entries: Arc<RwLock<HashMap<Uuid, SessionEntry>>>,
 }
 
 impl SessionStore {
+    /// Create an empty store.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Insert or replace a session by id.
+    ///
+    /// Repeated upserts of an already-terminal session keep the original
+    /// `terminal_since` stamp; every write re-runs the TTL and capacity
+    /// bounds.
     pub async fn upsert(&self, session: CaptureSession) {
         let mut entries = self.entries.write().await;
         let now = now_epoch_millis();
@@ -53,6 +61,7 @@ impl SessionStore {
         Self::enforce_bounds(&mut entries, now);
     }
 
+    /// Fetch a single session by id.
     pub async fn get(&self, session_id: Uuid) -> Option<CaptureSession> {
         self.entries
             .read()
@@ -61,6 +70,8 @@ impl SessionStore {
             .map(|entry| entry.session.clone())
     }
 
+    /// Snapshot all sessions; ordering is unspecified, so callers sort
+    /// by `created_at_millis` when order matters.
     pub async fn list(&self) -> Vec<CaptureSession> {
         self.entries
             .read()

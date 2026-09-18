@@ -147,7 +147,7 @@ pre-pass.</li>
 llama-server autostart.</li>
 </ul>
 <h3 id="client-side-only-vl-desktop">Client-side only (vl-desktop)</h3>
-<p><code>VOICELAYER_VL_BIN</code> and <code>VOICELAYER_LOG</code> are
+<p><code>VOICELAYER_DAEMON_BIN</code> and <code>VOICELAYER_LOG</code> are
 read by <code>vl-desktop</code>, not the daemon, and are intentionally
 kept out of <code>voicelayerd.env</code>. See <a
 href="./desktop.html">desktop.html</a> for details.</p>
@@ -202,21 +202,9 @@ the server PID directly.</p>
 <code>whisper_mode</code>: <code>"server"</code> once the daemon
 successfully probes <code>http://$HOST:$PORT/</code>, otherwise
 <code>"cli"</code> or <code>"unconfigured"</code>.</p>
-<p>It also reports both unit files separately so a misconfigured install
-(daemon up, whisper-server unit missing or stopped) can be diagnosed
-without an extra <code>systemctl --user status</code> round trip:</p>
-<ul>
-<li><code>systemd_unit_installed</code> /
-<code>systemd_unit_active</code> — the daemon unit
-(<code>voicelayerd.service</code>).</li>
-<li><code>whisper_server_unit_installed</code> /
-<code>whisper_server_unit_active</code> — the optional persistent server
-unit (<code>voicelayer-whisper-server.service</code>).
-<code>installed=true</code> plus <code>active=false</code> is the
-expected state when you let the daemon autostart whisper-server lazily;
-both <code>true</code> is the dedicated-unit setup; both
-<code>false</code> is the cli-only fallback.</li>
-</ul>
+<p>Unit state is not part of the health payload; check the two user
+units directly with <code>systemctl --user status voicelayerd.service
+voicelayer-whisper-server.service</code>.</p>
 <h3 id="docker-alternative">Docker alternative</h3>
 <p>The shipped unit runs a native <code>whisper-server</code> binary. To
 use the prebuilt <code>ghcr.io/ggml-org/whisper.cpp:main</code> image
@@ -270,7 +258,7 @@ in place so a later reinstall can reuse them.</p>
 </main>
 
 <footer class="vl-footer">
-  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu.</span>
+  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu and macOS.</span>
   <span>Documentation source: HTML files under <code>docs/</code>.</span>
 </footer>
 </body>

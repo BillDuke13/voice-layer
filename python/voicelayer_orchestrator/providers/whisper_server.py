@@ -80,11 +80,23 @@ def probe_whisper_server(
 
 
 def _server_endpoint_key(config: WhisperServerConfig) -> str:
+    """Derive the sidecar lock-file identity for this host/port pair.
+
+    Colons are replaced with underscores so IPv6 literals stay
+    filesystem-safe inside the lock file name.
+    """
     host = config.host.replace(":", "_")
     return f"whisper-server-{host}-{config.port}"
 
 
 def _build_whisper_server_command(config: WhisperServerConfig) -> list[str]:
+    """Assemble the autostart argv, validating its prerequisites first.
+
+    Raises:
+        ProviderInvocationError: ``server_bin`` or the shared whisper
+            ``model_path`` is unset, so autostart could not launch a
+            usable server.
+    """
     if not config.server_bin:
         raise ProviderInvocationError(
             "Autostart requires VOICELAYER_WHISPER_SERVER_BIN to point at a whisper-server binary."
@@ -193,6 +205,11 @@ def autostart_whisper_server(config: WhisperServerConfig) -> tuple[bool, str | N
 
 
 def _wait_for_whisper_server(config: WhisperServerConfig) -> tuple[bool, str | None]:
+    """Poll the server until reachable or ``launch_timeout_seconds`` elapses.
+
+    Returns ``(reachable, last_error)``; ``last_error`` is the most
+    recent probe failure, or ``None`` once the server answers.
+    """
     deadline = time.monotonic() + config.launch_timeout_seconds
     last_error: str | None = None
     while time.monotonic() < deadline:

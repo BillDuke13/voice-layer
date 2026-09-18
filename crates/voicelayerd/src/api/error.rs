@@ -10,6 +10,8 @@ use voicelayer_core::ProblemDetails;
 
 use crate::worker::WorkerCallError;
 
+/// Handler error type, rendered as an RFC 9457
+/// `application/problem+json` response with a per-variant HTTP status.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("bad request: {0}")]

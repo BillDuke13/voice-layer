@@ -99,6 +99,7 @@ pub struct Palette {
     pub glass_dark_edge: Rgba,
 }
 
+/// Dark or light appearance selector consumed by [`palette`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Appearance {
     Dark,

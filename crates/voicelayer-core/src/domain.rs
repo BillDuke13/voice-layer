@@ -100,6 +100,8 @@ pub struct CaptureSession {
 }
 
 impl CaptureSession {
+    /// Create a session in [`SessionState::Listening`] with a fresh UUID
+    /// and creation timestamp.
     pub fn new(mode: SessionMode, trigger: TriggerKind, language_profile: LanguageProfile) -> Self {
         Self {
             session_id: Uuid::new_v4(),
@@ -323,6 +325,8 @@ pub struct PreviewArtifact {
 }
 
 impl PreviewArtifact {
+    /// Build a [`PreviewStatus::NeedsProvider`] artifact whose notes
+    /// name the workflow (`mode`) that lacked a configured provider.
     pub fn needs_provider(title: &str, mode: SessionMode) -> Self {
         let mode_label = match mode {
             SessionMode::Dictation => "dictation",
@@ -353,6 +357,8 @@ pub struct CompositionReceipt {
 }
 
 impl CompositionReceipt {
+    /// Wrap [`PreviewArtifact::needs_provider`] output with a fresh
+    /// `job_id`.
     pub fn needs_provider(title: &str, mode: SessionMode) -> Self {
         Self {
             job_id: Uuid::new_v4(),
@@ -448,9 +454,6 @@ pub struct StitchWavSegmentsResult {
     pub duration_secs: f32,
 }
 
-/// Reply for `GET /v1/healthz`. Pairs the daemon's own status with a
-/// summary of the Python worker so operators can probe both layers in
-/// one round trip.
 /// RFC 9457 problem details returned by the daemon on non-2xx responses.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProblemDetails {
@@ -477,8 +480,12 @@ impl ProblemDetails {
     }
 }
 
+/// Reply for `GET /v1/health`. Pairs the daemon's own status with a
+/// summary of the Python worker so operators can probe both layers in
+/// one round trip.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HealthResponse {
+    /// `"ok"` when the worker summary is healthy, else `"degraded"`.
     pub status: String,
     pub socket_path: String,
     pub version: String,
@@ -551,9 +558,6 @@ pub struct WorkerHealthSummary {
     pub message: Option<String>,
 }
 
-/// One SSE payload published on the daemon's event stream. Carries a
-/// loosely-typed `event_type` plus enough context (`session_id`,
-/// `message`, timestamp) for clients to reconstruct lifecycle order.
 /// Typed daemon event streamed over `GET /v1/events/stream` (SSE).
 /// The serde tag (`event_type`) doubles as the SSE `event:` field via
 /// [`DaemonEvent::name`].
@@ -639,6 +643,8 @@ pub enum DaemonEvent {
 }
 
 impl DaemonEvent {
+    /// Stable wire name for this event (e.g. `dictation_completed`);
+    /// doubles as the SSE `event:` field on `GET /v1/events/stream`.
     pub fn name(&self) -> &'static str {
         match self {
             Self::DictationSessionCreated { .. } => "dictation_session_created",
@@ -664,6 +670,8 @@ impl DaemonEvent {
     }
 }
 
+/// A [`DaemonEvent`] stamped with the epoch-millis timestamp clients
+/// use to order the SSE stream.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EventEnvelope {
     pub created_at_millis: u64,
@@ -672,6 +680,7 @@ pub struct EventEnvelope {
 }
 
 impl EventEnvelope {
+    /// Wrap `event` with the current epoch-millis timestamp.
     pub fn new(event: DaemonEvent) -> Self {
         Self {
             created_at_millis: now_epoch_millis(),
@@ -5502,7 +5511,7 @@ VOICELAYER_LIVE_KNOB=hello
             // process, not the daemon. Documented in
             // docs/guides/desktop.html.
             "VOICELAYER_LOG",
-            "VOICELAYER_VL_BIN",
+            "VOICELAYER_DAEMON_BIN",
             // scripts/install.sh internal overrides — read by the
             // installer, not the daemon. Documented in
             // docs/guides/systemd.html.

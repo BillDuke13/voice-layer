@@ -13,6 +13,11 @@ pub struct GlobalHotkeysStatus {
     pub detail: Option<String>,
 }
 
+/// Probe the XDG GlobalShortcuts portal over the session D-Bus.
+///
+/// Reports available with the portal's interface version on success;
+/// any missing bus, portal, or property surfaces as unavailable with
+/// the failing step in `detail`.
 #[cfg(target_os = "linux")]
 pub async fn probe_global_hotkeys() -> GlobalHotkeysStatus {
     use std::convert::TryInto;
@@ -103,6 +108,9 @@ pub async fn probe_global_hotkeys() -> GlobalHotkeysStatus {
     }
 }
 
+/// Report the Carbon `global-hotkey` backend as present; the Input
+/// Monitoring permission it needs is verified at bind time by the
+/// desktop shell, not here.
 #[cfg(target_os = "macos")]
 pub async fn probe_global_hotkeys() -> GlobalHotkeysStatus {
     // macOS global hotkeys are driven through the `global-hotkey` crate
@@ -118,6 +126,8 @@ pub async fn probe_global_hotkeys() -> GlobalHotkeysStatus {
     }
 }
 
+/// Report global hotkeys as unavailable on platforms other than Linux
+/// and macOS.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub async fn probe_global_hotkeys() -> GlobalHotkeysStatus {
     GlobalHotkeysStatus {
