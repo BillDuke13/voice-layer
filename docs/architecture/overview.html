@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Architecture Overview — VoiceLayer Documentation</title>
-<meta name="description" content="Runtime topology, component responsibilities, domain vocabulary, configuration precedence, recorder backends, and dictation segmentation modes." />
+<meta name="description" content="Runtime topology, component responsibilities, domain vocabulary, configuration precedence, audio capture, and dictation segmentation modes." />
 <link rel="stylesheet" href="../assets/style.css" />
 </head>
 <body>
@@ -38,7 +38,7 @@
 <li><a href="#domain-objects">Domain Objects</a></li>
 <li><a href="#initial-transport-decisions">Initial Transport Decisions</a></li>
 <li><a href="#configuration-precedence">Configuration Precedence</a></li>
-<li><a href="#recorder-backends">Recorder Backends</a></li>
+<li><a href="#audio-capture">Audio Capture</a></li>
 <li><a href="#dictation-segmentation-phase-3b-3d">Dictation Segmentation (Phase 3B, 3D)</a></li>
 <li><a href="#optional-silero-vad-pre-pass-phase-3d">Optional silero-vad Pre-pass (Phase 3D)</a></li>
 <li><a href="#deferred-work">Deferred Work</a></li>
@@ -131,9 +131,9 @@ the path reported by <code>vl config path</code>, typically
 <code>[foreground_ptt]</code> populate the same fields the CLI flags
 set.</li>
 <li><strong>Struct defaults</strong> — the values baked into
-<code>ForegroundPttConfig::default</code> (space key,
-<code>RecorderBackend::Auto</code>, stop action <code>none</code>, and
-so on) apply when neither the file nor the CLI provides a value.</li>
+<code>ForegroundPttConfig::default</code> (space key, stop action
+<code>none</code>, and so on) apply when neither the file nor the CLI
+provides a value.</li>
 </ol>
 <p>Supported keys for <code>vl config set</code> today:</p>
 <pre><code>foreground_ptt.language                    (BCP-47 tag; &quot;none&quot; clears)
@@ -151,40 +151,35 @@ foreground_ptt.provider_id                 whisper_cpp | mimo_v2_5_asr | qwen3_a
 <p>Boolean values accept <code>true</code>/<code>false</code>,
 <code>1</code>/<code>0</code>, <code>yes</code>/<code>no</code>, or
 <code>on</code>/<code>off</code>.</p>
-<h2 id="recorder-backends">Recorder Backends</h2>
-<p>The daemon captures microphone audio to a temporary WAV file through
-a subprocess backend:</p>
-<ul>
-<li><code>pw-record</code> (PipeWire, preferred when available) wrapped
-by <code>timeout</code> so one-shot capture can honor a fixed
-duration.</li>
-<li><code>arecord</code> (ALSA) when PipeWire is not reachable.</li>
-<li><code>RecorderBackend::Auto</code> selects PipeWire when both
-<code>pw-record</code> and <code>timeout</code> are present, otherwise
-falls back to <code>arecord</code>.</li>
-</ul>
+<h2 id="audio-capture">Audio Capture</h2>
+<p>The daemon captures microphone audio in process through
+<code>cpal</code> — CoreAudio on macOS, the PipeWire ALSA shim on
+Linux desktops — so no external recorder binary is spawned. Capture
+runs on a dedicated thread that owns the audio stream, converts the
+input to mono <code>f32</code> samples, and appends them to a
+continuous per-session buffer. WAV files are sliced from that buffer
+and resampled from the device rate to the 16 kHz target rate, which is
+why segmented capture loses no audio at chunk boundaries.</p>
 <p>Live sessions (<code>POST /v1/sessions/dictation</code> and
-<code>POST /v1/sessions/dictation/stop</code>) start the recorder as a
-long-running child process and send SIGINT on stop; the audio is then
-handed to the Python worker's <code>transcribe</code> RPC, which
-dispatches to <code>whisper-server</code> when configured and falls back
-to one-shot <code>whisper-cli</code> otherwise, or to the session's
+<code>POST /v1/sessions/dictation/stop</code>) stop the in-process
+capture and hand the resulting WAV to the Python worker's
+<code>transcribe</code> RPC, which dispatches to
+<code>whisper-server</code> when configured and falls back to one-shot
+<code>whisper-cli</code> otherwise, or to the session's
 <code>provider_id</code> backend (<code>mimo_v2_5_asr</code> or
-<code>qwen3_asr_1_7b</code>) when one is selected. The daemon does not
-process PCM in process; all capture flows through the recorder
-subprocess to a WAV file.</p>
+<code>qwen3_asr_1_7b</code>) when one is selected.</p>
 <h2 id="dictation-segmentation-phase-3b-3d">Dictation Segmentation (Phase 3B, 3D)</h2>
 <p><code>StartDictationRequest</code> carries a
 <code>segmentation</code> field that controls how audio is captured for
 transcription:</p>
 <ul>
 <li><code>segmentation: {"mode": "one_shot"}</code> (default) — the
-pre-Phase-3 behavior: a single recorder subprocess runs from
+pre-Phase-3 behavior: a single in-process capture runs from
 <code>create</code> to <code>stop</code> and the full WAV is transcribed
 once.</li>
 <li><code>segmentation: {"mode": "fixed", "segment_secs": N, "overlap_secs": 0}</code>
-— the recorder is rolled every <code>N</code> seconds; each finalized
-chunk is transcribed in the background via the configured whisper
+— the capture buffer is sliced every <code>N</code> seconds; each
+finalized chunk is transcribed in the background via the configured whisper
 provider while the next chunk records. On stop the daemon waits for all
 in-flight transcription tasks and returns a single concatenated
 transcript. When <code>keep_audio</code> is true,
@@ -196,15 +191,16 @@ recording; listing the directory reconstructs the capture in order.
 <code>keep_audio=false</code> deletes each segment and removes the
 directory.</li>
 <li><code>segmentation: {"mode": "vad_gated", "probe_secs": P, "max_segment_secs": M, "silence_gap_probes": G}</code>
-— the recorder rolls at the shorter <code>probe_secs</code> cadence;
+— probes are cut from the capture buffer at the shorter
+<code>probe_secs</code> cadence;
 each probe runs through the Python worker's <code>segment_probe</code>
 RPC (silero-vad classification). Speech probes accumulate into a pending
 buffer and flush as a single logical speech unit when either
 <code>G</code> consecutive silent probes arrive or the buffered duration
-reaches <code>M</code> seconds. The daemon concatenates the speech
-probes via the <code>stitch_wav_segments</code> RPC before handing the
-merged WAV to <code>transcribe</code>, so a speaker's natural pauses
-(not the fixed wall-clock) bound each transcription input.
+reaches <code>M</code> seconds. The daemon cuts each flushed unit
+directly from the continuous capture buffer into one WAV and hands it
+to <code>transcribe</code>, so a speaker's natural pauses (not the
+fixed wall-clock) bound each transcription input.
 <code>G</code> defaults to 1 (flush on the first silent probe after
 speech). Requires VAD to be configured
 (<code>VOICELAYER_WHISPER_VAD_ENABLED=true</code>,
@@ -242,7 +238,7 @@ and <code>AsrFailed</code> are populated by the daemon;
 <p>Segmentation never applies to <code>POST /v1/dictation/capture</code>
 (one-shot bounded duration) or <code>POST /v1/transcriptions</code>
 (file transcription); those transcribe a single WAV in one
-<code>transcribe</code> call with no recorder rolling, using the same
+<code>transcribe</code> call with no live capture running, using the same
 <code>whisper-server</code> / <code>whisper-cli</code> /
 <code>provider_id</code> dispatch as live sessions.</p>
 <h2 id="optional-silero-vad-pre-pass-phase-3d">Optional silero-vad Pre-pass (Phase 3D)</h2>
@@ -295,7 +291,7 @@ interfaces.</p>
 </main>
 
 <footer class="vl-footer">
-  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu.</span>
+  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu and macOS.</span>
   <span>Documentation source: HTML files under <code>docs/</code>.</span>
 </footer>
 </body>

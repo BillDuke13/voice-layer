@@ -36,7 +36,7 @@ ENV_EXAMPLE = PROJECT_ROOT / "systemd" / "voicelayerd.env.example"
 CLIENT_ONLY_ENV_VARS: frozenset[str] = frozenset(
     {
         "VOICELAYER_LOG",
-        "VOICELAYER_VL_BIN",
+        "VOICELAYER_DAEMON_BIN",
     }
 )
 

@@ -365,8 +365,8 @@ mod tests {
     }
 
     /// Preferences default to local, conservative values: no forced output
-    /// language, the safest GUI inject target, automatic recorder selection, and
-    /// a short one-shot capture window.
+    /// language, the safest GUI inject target, and a short one-shot capture
+    /// window.
     #[test]
     fn preferences_default_is_local_and_conservative() {
         let prefs = Preferences::default();

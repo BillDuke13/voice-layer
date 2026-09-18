@@ -35,7 +35,7 @@
 <li><a href="#persistent-whisper-server-preferred-for-phase-3-segmented-workflows">Persistent <code>whisper-server</code> (preferred for Phase 3 segmented workflows)</a></li>
 </ul></li>
 <li><a href="#example-source-workflow">Example Source Workflow</a></li>
-<li><a href="#recorder-backends">Recorder Backends</a>
+<li><a href="#audio-capture">Audio Capture</a>
 <ul>
 <li><a href="#optional-silero-vad-pre-pass-phase-3d">Optional silero-vad Pre-pass (Phase 3D)</a></li>
 <li><a href="#vad-gated-live-dictation-phase-3d-b">VAD-gated Live Dictation (Phase 3D-B)</a></li>
@@ -151,20 +151,16 @@ export VOICELAYER_WHISPER_MODEL_PATH="/path/to/ggml-base.en.bin"
 cargo run -p vl -- doctor
 cargo run -p vl -- transcribe-file /path/to/sample.wav --language auto
 cargo run -p vl -- record-transcribe --duration-seconds 8 --language auto</code></pre>
-<h2 id="recorder-backends">Recorder Backends</h2>
-<p>The current CLI recording path is intentionally minimal:</p>
-<ul>
-<li>preferred backend: <code>pw-record</code> wrapped by
-<code>timeout --signal=INT</code></li>
-<li>fallback backend: <code>arecord -d</code></li>
-</ul>
-<p>This recording path writes a temporary WAV file and then forwards
-that file to the worker's <code>transcribe</code> RPC
-(<code>whisper-server</code> when configured, otherwise
-<code>whisper-cli</code>). The same path is
-now exposed through the daemon-side <code>dictation capture</code> flow,
-so future global hotkey and tray integrations can reuse it without
-re-implementing recording logic.</p>
+<h2 id="audio-capture">Audio Capture</h2>
+<p>Capture runs in process inside the daemon through
+<code>cpal</code> (CoreAudio on macOS, the PipeWire ALSA shim on
+Linux); no external recorder binary such as <code>pw-record</code> or
+<code>arecord</code> is spawned. The daemon writes the finished capture
+to a temporary WAV file and forwards it to the worker's
+<code>transcribe</code> RPC (<code>whisper-server</code> when
+configured, otherwise <code>whisper-cli</code>). The same path backs
+the daemon-side <code>dictation capture</code> flow, so other clients
+reuse it without re-implementing recording logic.</p>
 <h3 id="optional-silero-vad-pre-pass-phase-3d">Optional silero-vad Pre-pass (Phase 3D)</h3>
 <p>The Python worker can run a silero-vad pre-pass before handing audio
 to the configured ASR backend. When enabled it detects speech regions in
@@ -209,8 +205,8 @@ rate must be 16000 Hz or 8000 Hz.</p>
 <h3 id="vad-gated-live-dictation-phase-3d-b">VAD-gated Live Dictation (Phase 3D-B)</h3>
 <p>The pre-pass above runs <em>after</em> whisper has already received a
 fixed-duration WAV. The <strong>VAD-gated</strong> segmentation mode
-goes further: the recorder rolls at a short <code>probe_secs</code>
-cadence, each probe is classified by silero-vad through the worker's
+goes further: probes are cut from the capture buffer at a short
+<code>probe_secs</code> cadence, each probe is classified by silero-vad through the worker's
 <code>segment_probe</code> JSON-RPC method, and the orchestrator only
 flushes a buffered speech unit to <code>transcribe</code> when it sees
 <code>silence_gap_probes</code> consecutive silent probes (default
@@ -245,13 +241,12 @@ orchestrator begins.</li>
 the speech/silence verdict and <code>speech_ratio</code>.</li>
 <li><code>dictation.speech_unit_flushed</code> — once per flushed
 pending buffer (silence-triggered or max-duration-triggered).</li>
-<li><code>dictation.speech_unit_failed</code> — emitted instead of
-<code>speech_unit_flushed</code> when the
-<code>stitch_wav_segments</code> RPC errors during a flush; the session
-ultimately surfaces as <code>dictation.failed</code> with
-<code>failure_kind: asr_failed</code>.</li>
 <li><code>dictation.speech_unit_transcribed</code> — once per flushed
-unit's background transcribe task.</li>
+unit's background transcribe task that succeeds.</li>
+<li><code>dictation.segment_transcribe_failed</code> — when a flushed
+unit's background transcribe task errors; the failed unit's transcript
+is dropped and stop still returns the concatenated transcripts of the
+successful units.</li>
 <li><code>dictation.completed</code> / <code>dictation.failed</code> —
 same shape as fixed mode; <code>text</code> is the concatenated
 transcripts of every flushed speech unit.</li>
@@ -453,6 +448,13 @@ similar order of magnitude for short utterances and linear growth with
 longer audio. The Qwen3-ASR latency figure is the upstream-published
 expectation rather than a maintainer-measured number; rerun a benchmark
 on your own hardware before relying on the figure.</p>
+<p>The provider table lists only dispatchable backends. The
+<code>/v1/providers</code> catalog (and <code>vl providers</code>) can
+also advertise <code>experimental</code> entries such as
+<code>voxtral_realtime</code> that have no transcribe handler yet;
+routing a session to one of those is rejected by the daemon's
+pre-flight validation, and the descriptor exists so clients can render
+upcoming backends before they ship.</p>
 <p><strong>Cold-start applies once per daemon lifetime.</strong> The
 daemon keeps one Python worker subprocess alive across every JSON-RPC
 request (see
@@ -607,9 +609,9 @@ worker-side splitting is opt-in.</p>
 <h2 id="current-scope">Current Scope</h2>
 <p>The current ASR integration covers file transcription,
 short-recording transcription, Phase 3B fixed-duration segmented live
-dictation (recorder rolled every <em>N</em> seconds with background
+dictation (capture sliced every <em>N</em> seconds with background
 transcription), the optional silero-vad pre-pass, and Phase 3D-B
-VAD-gated segmentation (probe-cadence recording with silence-triggered
+VAD-gated segmentation (probe-cadence slicing with silence-triggered
 flush). It does not yet cover:</p>
 <ul>
 <li>always-on live microphone capture</li>
@@ -706,7 +708,7 @@ ratio.</p>
 </main>
 
 <footer class="vl-footer">
-  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu.</span>
+  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu and macOS.</span>
   <span>Documentation source: HTML files under <code>docs/</code>.</span>
 </footer>
 </body>

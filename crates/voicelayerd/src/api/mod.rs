@@ -37,6 +37,9 @@ use error::ApiError;
 
 pub(crate) const HEALTH_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Shared state cloned across every router handler: the session and
+/// dictation stores, the event bus, the cached health snapshot, and the
+/// daemon config.
 #[derive(Clone)]
 pub struct AppState {
     pub sessions: SessionStore,
@@ -44,12 +47,10 @@ pub struct AppState {
     pub events: EventBus,
     pub health: Arc<RwLock<Option<HealthResponse>>>,
     pub config: Arc<DaemonConfig>,
-    /// Test hook: HTTP tests substitute synthetic silence so handlers can
-    /// run without an audio device. Production leaves this `None`.
-    /// Test hook: HTTP tests substitute synthetic silence so handlers can
-    /// run without an audio device. Production leaves this `None`. Kept
-    /// ungated because the route-alignment scanners truncate sources at the
-    /// first `#[cfg(test)]` marker.
+    /// Test hook reserved for HTTP tests: substitutes synthetic silence
+    /// so handlers can run without an audio device. Production leaves
+    /// this `None`. Kept ungated because the route-alignment scanners
+    /// truncate sources at the first `#[cfg(test)]` marker.
     pub test_audio_silence: Option<(Duration, u32)>,
 }
 
@@ -58,6 +59,7 @@ struct ProviderListResponse {
     providers: Vec<voicelayer_core::ProviderDescriptor>,
 }
 
+/// Assemble the `/v1` control-plane router with `state` baked in.
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(get_health))

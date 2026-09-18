@@ -111,7 +111,6 @@ workflow; daemon-side configuration remains the CLI's domain.</p>
 <ul>
 <li>Default output language (blank keeps the source language)</li>
 <li>Default inject target</li>
-<li>Recorder backend (Auto / PipeWire / ALSA)</li>
 <li>One-shot capture window (5 / 8 / 12 / 20 / 30 seconds)</li>
 </ul>
 <p>A separate "Appearance &amp; accessibility" card exposes:</p>
@@ -206,12 +205,12 @@ reach the socket it offers a "Start daemon" button that spawns
 </thead>
 <tbody>
 <tr class="odd">
-<td><code>VOICELAYER_VL_BIN</code></td>
-<td>Absolute path to the <code>vl</code> binary that
-<code>vl-desktop</code> invokes when starting the daemon or issuing CLI
-fallbacks.</td>
-<td><code>$HOME/.local/bin/vl</code>, then <code>$PATH</code>
-lookup</td>
+<td><code>VOICELAYER_DAEMON_BIN</code></td>
+<td>Absolute path to the <code>voicelayerd</code> binary that
+<code>vl-desktop</code> spawns when it starts the daemon on
+demand.</td>
+<td><code>$HOME/.local/bin/voicelayerd</code> when present, then
+<code>$PATH</code> lookup</td>
 </tr>
 <tr class="even">
 <td><code>VOICELAYER_LOG</code></td>
@@ -223,7 +222,7 @@ lookup</td>
 </tbody>
 </table>
 <p>Both knobs are client-side only — the daemon does not read them. If
-you need to override <code>VOICELAYER_VL_BIN</code> or
+you need to override <code>VOICELAYER_DAEMON_BIN</code> or
 <code>VOICELAYER_LOG</code> persistently, set them in your shell
 profile, desktop entry, or launcher wrapper rather than the daemon env
 file. The coverage test in <code>tests/python/test_env_example.py</code>
@@ -259,7 +258,7 @@ inside the controlling TTY's raw mode.</p>
 </main>
 
 <footer class="vl-footer">
-  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu.</span>
+  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu and macOS.</span>
   <span>Documentation source: HTML files under <code>docs/</code>.</span>
 </footer>
 </body>

@@ -16,8 +16,12 @@ use std::{
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use thiserror::Error;
 
+/// Canonical output rate every WAV slice and stopped capture is
+/// resampled to (16 kHz mono).
 pub const TARGET_SAMPLE_RATE: u32 = 16_000;
 
+/// Capture-stream and WAV-writing failures surfaced by the audio
+/// pipeline.
 #[derive(Debug, Error)]
 pub enum AudioError {
     #[error("no audio input device is available")]
@@ -66,6 +70,12 @@ impl AudioCapture {
 }
 
 impl AudioCapture {
+    /// Start capturing from the default input device.
+    ///
+    /// Spawns the `cpal` stream thread plus a consumer thread that
+    /// appends mono blocks to the shared buffer, and blocks until the
+    /// device sample rate is known — so capture is live when this
+    /// returns.
     pub fn start() -> Result<Self, AudioError> {
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<f32>>(64);
         let (stop_tx, stop_rx) = mpsc::channel::<()>();

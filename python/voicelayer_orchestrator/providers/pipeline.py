@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from voicelayer_orchestrator.config import (
+    OpenAICompatibleConfig,
     llm_config,
     mimo_asr_config,
     qwen3_asr_config,
@@ -149,16 +150,19 @@ def transcribe(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def compose(params: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch a compose request to the configured LLM provider."""
     config = _ready_llm_config()
     return build_compose_payload(params, config)
 
 
 def rewrite(params: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch a rewrite request to the configured LLM provider."""
     config = _ready_llm_config()
     return build_rewrite_payload(params, config)
 
 
 def translate(params: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch a translate request to the configured LLM provider."""
     config = _ready_llm_config()
     return build_translate_payload(params, config)
 
@@ -226,7 +230,15 @@ def health_report() -> dict[str, Any]:
     }
 
 
-def _ready_llm_config():
+def _ready_llm_config() -> OpenAICompatibleConfig:
+    """Resolve the LLM config, enforcing it is configured and reachable.
+
+    Raises:
+        ProviderUnavailableError: no LLM section was configured.
+        ProviderInvocationError: the configured endpoint failed the
+            readiness probe (the optional ``llama-server`` autostart has
+            already run by the time this is called).
+    """
     config = llm_config()
     if config is None:
         raise ProviderUnavailableError(
@@ -239,6 +251,7 @@ def _ready_llm_config():
 
 
 def _with_notes(result: dict[str, Any], extra_notes: list[str]) -> dict[str, Any]:
+    """Prepend ``extra_notes`` to a provider result's existing notes."""
     if not extra_notes:
         return result
     return {**result, "notes": [*extra_notes, *result.get("notes", [])]}

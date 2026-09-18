@@ -65,6 +65,12 @@ impl DaemonConfig {
         Self::with_settings(Some(socket_path), Some(project_root), settings)
     }
 
+    /// Build the daemon config from explicit parts.
+    ///
+    /// `None` arguments fall back to the corresponding daemon settings;
+    /// the worker command is discovered from the resolved project root
+    /// and carries the settings' worker payload into the `initialize`
+    /// handshake.
     pub fn with_settings(
         socket_path: Option<PathBuf>,
         project_root: Option<PathBuf>,
@@ -86,6 +92,12 @@ impl DaemonConfig {
 
 use std::env;
 
+/// Bind the `/v1` API on the configured Unix socket and serve until
+/// Ctrl+C or SIGTERM.
+///
+/// Creates (and tightens to owner-only permissions) the socket and
+/// runtime directories, spawns the periodic health refresher, and on
+/// shutdown kills the worker and removes the socket file.
 pub async fn run_daemon(config: DaemonConfig) -> std::io::Result<()> {
     let socket_dir = config
         .socket_path

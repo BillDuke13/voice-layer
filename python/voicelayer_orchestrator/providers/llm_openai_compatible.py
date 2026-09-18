@@ -81,6 +81,7 @@ def render_content_text(content: Any) -> str:
 
 
 def _auth_headers(config: OpenAICompatibleConfig) -> dict[str, str]:
+    """Return the bearer header, or an empty dict for key-less endpoints."""
     if config.api_key is None:
         return {}
     return {"Authorization": f"Bearer {config.api_key}"}

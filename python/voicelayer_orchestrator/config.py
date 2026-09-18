@@ -84,6 +84,7 @@ class WhisperServerConfig:
 
     @property
     def base_url(self) -> str:
+        """HTTP base URL of the endpoint (``http://host:port``)."""
         return f"http://{self.host}:{self.port}"
 
 
@@ -186,6 +187,14 @@ class Qwen3AsrConfig:
 
 @dataclass(frozen=True)
 class _WorkerConfig:
+    """Process-global configuration snapshot stored by :func:`configure`.
+
+    Each section is ``None`` when the initialize payload (or the
+    environment fallback) did not provide it; the accessors return the
+    section as-is, so callers uniformly treat ``None`` as "feature
+    unconfigured" rather than "misconfigured".
+    """
+
     llm: OpenAICompatibleConfig | None
     llama_launch: LlamaServerLaunchConfig | None
     whisper: WhisperCppConfig | None
@@ -217,6 +226,7 @@ def configure(payload: dict[str, Any]) -> None:
 
 
 def is_configured() -> bool:
+    """Return whether the worker has stored an ``initialize`` payload."""
     return _CONFIG is not None
 
 
@@ -232,36 +242,49 @@ def reset_configuration_for_tests() -> None:
 
 
 def _require_config() -> _WorkerConfig:
+    """Return the stored configuration.
+
+    Raises:
+        RuntimeError: the worker has not received ``initialize`` yet —
+            the daemon always handshakes before dispatching requests.
+    """
     if _CONFIG is None:
         raise RuntimeError("worker has not been initialized")
     return _CONFIG
 
 
 def llm_config() -> OpenAICompatibleConfig | None:
+    """Return the parsed ``llm`` section, or ``None`` when unconfigured."""
     return _require_config().llm
 
 
 def llama_launch_config() -> LlamaServerLaunchConfig | None:
+    """Return the ``llama-server`` autostart section, or ``None`` when unset."""
     return _require_config().llama_launch
 
 
 def whisper_config() -> WhisperCppConfig | None:
+    """Return the parsed ``whisper`` section, or ``None`` when unconfigured."""
     return _require_config().whisper
 
 
 def whisper_server_config() -> WhisperServerConfig | None:
+    """Return the parsed ``whisper_server`` section, or ``None`` when unset."""
     return _require_config().whisper_server
 
 
 def vad_config() -> WhisperVadConfig | None:
+    """Return the parsed ``vad`` section, or ``None`` when the pre-pass is off."""
     return _require_config().vad
 
 
 def mimo_asr_config() -> MimoAsrConfig | None:
+    """Return the parsed ``mimo_asr`` section, or ``None`` when unconfigured."""
     return _require_config().mimo_asr
 
 
 def qwen3_asr_config() -> Qwen3AsrConfig | None:
+    """Return the parsed ``qwen3_asr`` section, or ``None`` when unconfigured."""
     return _require_config().qwen3_asr
 
 
@@ -496,6 +519,12 @@ def configure_from_environment(environ: Mapping[str, str] | None = None) -> None
 def load_llm_provider_config(
     environ: Mapping[str, str] | None = None,
 ) -> OpenAICompatibleConfig | None:
+    """Read the ``VOICELAYER_LLM_*`` layer into an LLM config.
+
+    Returns ``None`` unless both ``VOICELAYER_LLM_ENDPOINT`` and
+    ``VOICELAYER_LLM_MODEL`` are set; the API key and timeout fall
+    back to their defaults when unset.
+    """
     source = environ if environ is not None else os.environ
     endpoint = source.get("VOICELAYER_LLM_ENDPOINT")
     model = source.get("VOICELAYER_LLM_MODEL")
@@ -512,6 +541,11 @@ def load_llm_provider_config(
 def load_llama_server_launch_config(
     environ: Mapping[str, str] | None = None,
 ) -> LlamaServerLaunchConfig | None:
+    """Read the ``VOICELAYER_LLAMA_*`` autostart layer.
+
+    Returns ``None`` unless ``VOICELAYER_LLM_AUTO_START`` is set to an
+    affirmative value (``1``/``true``/``yes``/``on``).
+    """
     source = environ if environ is not None else os.environ
     enabled = source.get("VOICELAYER_LLM_AUTO_START", "").strip().lower()
     if enabled not in {"1", "true", "yes", "on"}:
@@ -529,6 +563,11 @@ def load_llama_server_launch_config(
 def load_whisper_provider_config(
     environ: Mapping[str, str] | None = None,
 ) -> WhisperCppConfig | None:
+    """Read the ``VOICELAYER_WHISPER_*`` layer into a whisper.cpp config.
+
+    Returns ``None`` unless ``VOICELAYER_WHISPER_MODEL_PATH`` is set;
+    the binary and timeout default to ``whisper-cli`` and 300 seconds.
+    """
     source = environ if environ is not None else os.environ
     model_path = source.get("VOICELAYER_WHISPER_MODEL_PATH")
     if not model_path:
@@ -546,6 +585,12 @@ def load_whisper_provider_config(
 def load_whisper_vad_config(
     environ: Mapping[str, str] | None = None,
 ) -> WhisperVadConfig | None:
+    """Read the ``VOICELAYER_WHISPER_VAD_*`` pre-pass layer.
+
+    Returns ``None`` unless ``VOICELAYER_WHISPER_VAD_ENABLED`` is
+    affirmative *and* a VAD model path is set; the tunables fall back
+    to the silero-vad defaults baked into the field initializers.
+    """
     source = environ if environ is not None else os.environ
     enabled = source.get("VOICELAYER_WHISPER_VAD_ENABLED", "").strip().lower()
     if enabled not in {"1", "true", "yes", "on"}:
@@ -567,6 +612,12 @@ def load_whisper_vad_config(
 def load_whisper_server_config(
     environ: Mapping[str, str] | None = None,
 ) -> WhisperServerConfig | None:
+    """Read the ``VOICELAYER_WHISPER_SERVER_*`` layer.
+
+    Returns ``None`` when no server knob is set at all; otherwise the
+    host and port default to ``127.0.0.1:8188`` when omitted. Any set
+    knob (even just ``AUTO_START``) opts into the server transport.
+    """
     source = environ if environ is not None else os.environ
     host = source.get("VOICELAYER_WHISPER_SERVER_HOST", "").strip()
     port_str = source.get("VOICELAYER_WHISPER_SERVER_PORT", "").strip()
@@ -599,6 +650,11 @@ def load_whisper_server_config(
 def load_mimo_asr_config(
     environ: Mapping[str, str] | None = None,
 ) -> MimoAsrConfig | None:
+    """Read the ``VOICELAYER_MIMO_*`` layer into a MiMo-ASR config.
+
+    Returns ``None`` unless both ``VOICELAYER_MIMO_MODEL_PATH`` and
+    ``VOICELAYER_MIMO_TOKENIZER_PATH`` are set.
+    """
     source = environ if environ is not None else os.environ
     model_path = source.get("VOICELAYER_MIMO_MODEL_PATH")
     tokenizer_path = source.get("VOICELAYER_MIMO_TOKENIZER_PATH")
@@ -619,6 +675,13 @@ def load_mimo_asr_config(
 def load_qwen3_asr_config(
     environ: Mapping[str, str] | None = None,
 ) -> Qwen3AsrConfig | None:
+    """Read the ``VOICELAYER_QWEN3_ASR_*`` layer into a Qwen3-ASR config.
+
+    Returns ``None`` unless ``VOICELAYER_QWEN3_ASR_MODEL_PATH`` is set;
+    the torch dtype is normalized to lower case and defaults to
+    ``bfloat16`` (``VOICELAYER_QWEN3_ASR_TORCH_DTYPE`` wins over the
+    legacy ``VOICELAYER_QWEN3_ASR_DTYPE`` spelling).
+    """
     source = environ if environ is not None else os.environ
     model_path = (source.get("VOICELAYER_QWEN3_ASR_MODEL_PATH") or "").strip()
     if not model_path:

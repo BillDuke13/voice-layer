@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+/// Capability category a provider serves: speech recognition, text
+/// generation, speech synthesis, or host automation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
@@ -9,14 +11,26 @@ pub enum ProviderKind {
     HostAdapter,
 }
 
+/// Static catalog entry describing one provider to clients and
+/// operators (`vl providers`, `GET /v1/providers`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderDescriptor {
+    /// Operator-facing identifier used by `TranscribeRequest.provider_id`
+    /// and the worker's RPC dispatch.
     pub id: String,
     pub kind: ProviderKind,
+    /// How the daemon or worker reaches the provider (e.g.
+    /// `local_process`, `stdio_worker`, `xdg_portal`).
     pub transport: String,
+    /// Whether the provider runs entirely on-device; `false` marks
+    /// cloud-backed entries.
     pub local: bool,
+    /// Whether the provider is active without an explicit opt-in.
     pub default_enabled: bool,
+    /// Whether the entry is advertised but not production-hardened.
     pub experimental: bool,
+    /// License of the provider implementation; `system` or `n/a` for
+    /// host-provided surfaces.
     pub license: String,
 }
 
@@ -43,6 +57,9 @@ pub fn is_supported_transcribe_provider_id(provider_id: Option<&str>) -> bool {
     }
 }
 
+/// Static catalog of ASR and LLM providers. May include advertised-only
+/// experimental entries without a runtime handler; the dispatchable ASR
+/// subset is [`SUPPORTED_TRANSCRIBE_PROVIDER_IDS`].
 pub fn default_provider_catalog() -> Vec<ProviderDescriptor> {
     vec![
         ProviderDescriptor {
@@ -93,6 +110,10 @@ pub fn default_provider_catalog() -> Vec<ProviderDescriptor> {
     ]
 }
 
+/// Static catalog of host-side automation surfaces. The leading entry
+/// is platform-specific (`atspi_accessible_text` on Linux,
+/// `macos_clipboard_paste` elsewhere); `global_shortcuts` reports the
+/// XDG GlobalShortcuts portal on Linux and Carbon hotkeys on macOS.
 pub fn default_host_adapter_catalog() -> Vec<ProviderDescriptor> {
     let mut catalog = vec![
         ProviderDescriptor {

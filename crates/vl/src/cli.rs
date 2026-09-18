@@ -25,7 +25,6 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Manage the long-running VoiceLayer daemon (start, supervise).
     /// Inspect and edit the operator-local VoiceLayer config file.
     Config {
         #[command(subcommand)]
@@ -609,22 +608,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-
-    /// Pins the XDG branch. Doctor's `systemd_unit_installed` field
-    /// drives operator-facing diagnostics ("did the install script
-    /// land the unit?"); a regression that ignored `XDG_CONFIG_HOME`
-    /// would silently misreport on hosts that override it.
-    /// Pins the HOME-fallback branch. The install script targets
-    /// `~/.config/systemd/user/` regardless of XDG; this asserts the
-    /// helper agrees so doctor cannot disagree with the installer.
-    /// Pins the no-anchor case. A degenerate sandbox (no XDG, no HOME)
-    /// must yield `None` so doctor reports the unit as not installed
-    /// instead of crashing or guessing a path that does not exist.
-    /// Pins the affirmative branch of `systemd_unit_installed` and
-    /// proves the unit-name parameter is honoured: the same XDG
-    /// directory holds `voicelayerd.service` but not
-    /// `voicelayer-whisper-server.service`, and the helper must
-    /// report exactly one as installed.
     mod dictation_parsing {
         use clap::Parser;
 

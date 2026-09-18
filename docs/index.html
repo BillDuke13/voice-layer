@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>VoiceLayer Documentation</title>
-<meta name="description" content="Local-first voice composition layer for Ubuntu desktops: dictation, composition, rewrite, and translation through a daemon, CLI/TUI, and host adapters." />
+<meta name="description" content="Local-first voice composition layer for Ubuntu and macOS (Apple Silicon) desktops: dictation, composition, rewrite, and translation through a daemon, CLI/TUI, and host adapters." />
 <link rel="stylesheet" href="assets/style.css" />
 </head>
 <body>
@@ -25,8 +25,8 @@
 
 <h1>VoiceLayer</h1>
 <p>
-  <strong>VoiceLayer</strong> is a local-first voice composition layer for Ubuntu
-  desktop workflows. It packages low-latency dictation, structured text
+  <strong>VoiceLayer</strong> is a local-first voice composition layer for
+  Ubuntu and macOS (Apple Silicon) desktop workflows. It packages low-latency dictation, structured text
   composition, rewriting, and translation behind a single daemon, a CLI / TUI,
   an optional GUI shell, and a small set of host adapters that route the result
   into whichever editor, browser, IDE, or terminal application currently has
@@ -71,9 +71,9 @@
   <li>systemd user units for <code>voicelayerd</code> and the optional
       <code>voicelayer-whisper-server</code>, plus a
       <code>scripts/install.sh</code> one-shot installer.</li>
-  <li><code>vl doctor</code> surfaces recorder diagnostics, whisper mode
-      (<code>cli</code> / <code>server</code> / <code>unconfigured</code>), LLM
-      reachability, GlobalShortcuts portal status, and systemd unit state.</li>
+  <li><code>vl doctor</code> surfaces whisper mode
+      (<code>cli</code> / <code>server</code> / <code>unconfigured</code>), ASR
+      and LLM provider reachability, and GlobalShortcuts portal status.</li>
 </ul>
 
 <h2>Documentation</h2>
@@ -84,7 +84,7 @@
     <article class="vl-card">
       <h3><a href="architecture/overview.html">Architecture Overview</a></h3>
       <p>Runtime topology, component responsibilities, domain vocabulary,
-         configuration precedence, recorder backends, and dictation
+         configuration precedence, audio capture, and dictation
          segmentation modes (one-shot, fixed, VAD-gated).</p>
     </article>
     <article class="vl-card">
@@ -145,7 +145,7 @@
 
 <pre><code>cargo build --release --bin vl --bin vl-desktop --bin voicelayerd
 uv sync --group dev
-cargo run -p vl -- daemon run --project-root "$(pwd)"
+cargo run -p voicelayerd
 </code></pre>
 
 <p>Inspect the running environment, providers, and supported transcript
@@ -162,7 +162,7 @@ cargo run -p vl -- providers
 
 <p>For longer sessions, drive the daemon's live dictation control plane:</p>
 
-<pre><code>cargo run -p vl -- dictation start --backend pipewire --language auto
+<pre><code>cargo run -p vl -- dictation start --language auto
 cargo run -p vl -- dictation stop &lt;session-id&gt;
 </code></pre>
 
@@ -170,7 +170,7 @@ cargo run -p vl -- dictation stop &lt;session-id&gt;
    transcript review, clipboard restore, and optional tmux / WezTerm / Kitty
    targets:</p>
 
-<pre><code>cargo run -p vl -- dictation foreground-ptt --backend pipewire --language auto
+<pre><code>cargo run -p vl -- dictation foreground-ptt --language auto
 </code></pre>
 
 <h2>Verification chain</h2>
@@ -198,7 +198,7 @@ uv run pytest -q tests/python
 </main>
 
 <footer class="vl-footer">
-  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu.</span>
+  <span>VoiceLayer &mdash; local-first voice composition layer for Ubuntu and macOS.</span>
   <span>Repository: <a href="https://github.com/memenow/voice-layer"><code>memenow/voice-layer</code></a></span>
 </footer>
 </body>
